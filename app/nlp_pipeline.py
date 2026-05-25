@@ -1,334 +1,378 @@
 import re
+import unicodedata
+from typing import Optional
+
 
 class EVNLPPipeline:
-    def __init__(self):
-        # 1. Từ điển chuyên biệt cho xe điện (EV Dictionary) dùng cho Tokenizer
-        # Sắp xếp từ dài nhất đến ngắn nhất để thuật toán Maximum Matching chạy chính xác
+    """Lightweight Vietnamese NLP pipeline for EV consultation queries."""
+
+    PRICE_WORDS = ("giá", "gia", "chi phí", "chi phi", "tiền", "tien")
+    RANGE_WORDS = (
+        "tầm hoạt động",
+        "tam hoat dong",
+        "quãng đường",
+        "quang duong",
+        "phạm vi",
+        "pham vi",
+        "chạy",
+        "chay",
+        "đi được",
+        "di duoc",
+        "km",
+        "cây số",
+        "cay so",
+    )
+
+    def __init__(self, known_models=None):
+        self.known_models = self._normalize_models(known_models or [])
         self.vocabulary = [
-            # Tên xe
-            "vf 3", "vf 5", "vf 6", "vf 7", "vf 8", "vf 9",
-            "vf3", "vf5", "vf6", "vf7", "vf8", "vf9",
-            # Thực thể thuộc tính / Cụm từ chuyên ngành
-            "tầm hoạt động", "quãng đường", "chạy xa nhất", "chạy xa",
-            "giá rẻ nhất", "giá cao nhất", "giá bao nhiêu", "chi phí",
-            "xe điện", "ô tô điện", "ô tô", "chiếc xe",
-            # Giới từ / Điều kiện
-            "ít hơn", "nhiều hơn", "lớn hơn", "nhỏ hơn", "dưới", "trên",
-            "khoảng", "trong tầm", "từ", "đến",
-            # Đơn vị
-            "triệu đồng", "triệu", "tỷ", "km", "cây số",
-            # Đại từ / Nghi vấn
-            "nào", "gì", "bao nhiêu", "chiếc nào", "loại nào",
-            # Động từ hành động
-            "chạy", "di chuyển", "đi được", "so sánh", "mua", "tư vấn"
+            "tầm hoạt động",
+            "quãng đường",
+            "chạy xa nhất",
+            "chạy xa",
+            "giá rẻ nhất",
+            "giá cao nhất",
+            "giá bao nhiêu",
+            "chi phí",
+            "xe điện",
+            "ô tô điện",
+            "ô tô",
+            "chiếc xe",
+            "ít hơn",
+            "nhiều hơn",
+            "lớn hơn",
+            "nhỏ hơn",
+            "không quá",
+            "tối đa",
+            "tối thiểu",
+            "dưới",
+            "trên",
+            "khoảng",
+            "trong tầm",
+            "từ",
+            "đến",
+            "triệu đồng",
+            "triệu",
+            "tỷ",
+            "km",
+            "cây số",
+            "bao nhiêu",
+            "chiếc nào",
+            "loại nào",
+            "đi được",
+            "so sánh",
+            "tư vấn",
+            "nên mua",
+            "phù hợp",
         ]
-        
-        # POS Tag Map mặc định
+
         self.pos_rules = {
-            "N": ["xe điện", "ô tô điện", "ô tô", "xe", "tầm hoạt động", "quãng đường", "chi phí", "triệu", "triệu đồng", "tỷ", "km", "cây số"],
-            "Np": ["vf3", "vf5", "vf6", "vf7", "vf8", "vf9", "vf 3", "vf 5", "vf 6", "vf 7", "vf 8", "vf 9"],
-            "V": ["chạy", "di chuyển", "đi được", "so sánh", "mua", "tư vấn", "bán", "có", "tìm"],
-            "A": ["xa", "rẻ", "đắt", "cao", "thấp", "xa nhất", "rẻ nhất", "đắt nhất", "tốt nhất"],
-            "E": ["dưới", "trên", "từ", "đến", "khoảng", "trong tầm", "hơn"],
+            "N": [
+                "xe điện",
+                "ô tô điện",
+                "ô tô",
+                "xe",
+                "tầm hoạt động",
+                "quãng đường",
+                "chi phí",
+                "triệu",
+                "triệu đồng",
+                "tỷ",
+                "km",
+                "cây số",
+            ],
+            "Np": list(self.known_models),
+            "V": ["chạy", "chạy xa", "di chuyển", "đi được", "so sánh", "mua", "tư vấn", "bán", "có", "tìm", "nên mua"],
+            "A": [
+                "xa",
+                "rẻ",
+                "đắt",
+                "cao",
+                "thấp",
+                "chạy xa nhất",
+                "xa nhất",
+                "giá bao nhiêu",
+                "rẻ nhất",
+                "đắt nhất",
+                "tốt nhất",
+                "phù hợp",
+            ],
+            "E": ["dưới", "trên", "từ", "đến", "khoảng", "trong tầm", "hơn", "không quá", "tối đa", "tối thiểu"],
             "P": ["nào", "gì", "bao nhiêu", "đâu"],
         }
-        
+
+    def set_known_models(self, models):
+        self.known_models = self._normalize_models(models)
+        self.pos_rules["Np"] = list(self.known_models)
+
+    def _normalize_models(self, models):
+        return {str(model).upper().replace(" ", "") for model in models if str(model).strip()}
+
+    def _strip_accents(self, text: str) -> str:
+        text = unicodedata.normalize("NFD", text)
+        text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+        return text.replace("đ", "d").replace("Đ", "D")
+
     def _normalize_text(self, text: str) -> str:
-        # Chuẩn hóa văn bản: viết thường, loại bỏ khoảng trắng dư thừa
         text = text.lower().strip()
-        # Thay thế các ký tự đặc biệt nhưng giữ lại dấu chấm hỏi, phẩy
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"\s+", " ", text)
         return text
 
+    def _plain_text(self, text: str) -> str:
+        return self._strip_accents(self._normalize_text(text))
+
+    def _canonical_model(self, value: str) -> str:
+        return value.upper().replace(" ", "")
+
+    def _find_models(self, text: str) -> list:
+        plain = self._plain_text(text)
+        compact_plain = re.sub(r"[^a-z0-9]", "", plain).upper()
+        models = []
+
+        for match in re.finditer(r"\bvf\s*(\d+)\b", plain, flags=re.IGNORECASE):
+            model = f"VF{match.group(1)}"
+            if model not in models:
+                models.append(model)
+
+        for model in sorted(self.known_models, key=len, reverse=True):
+            compact_model = re.sub(r"[^A-Z0-9]", "", model.upper())
+            if compact_model and compact_model in compact_plain and model not in models:
+                models.append(model)
+
+        return models
+
+    def _parse_number(self, value: str, unit: Optional[str] = None) -> float:
+        number = float(value.replace(",", "."))
+        unit_plain = self._plain_text(unit or "")
+        if unit_plain in {"ty", "ti"}:
+            return number * 1000
+        return number
+
     def tokenize(self, text: str):
-        """
-        Sử dụng giải thuật Maximum Matching (Khớp tối đa) để tách từ tiếng Việt.
-        """
         normalized = self._normalize_text(text)
-        # Tách dấu câu để xử lý riêng
-        # Tách các từ/số và dấu câu
-        raw_tokens = re.findall(r'[a-zA-Z0-9_À-ỹ]+|[.,?!=+-]', normalized)
-        
+        raw_tokens = re.findall(r"[a-zA-Z0-9_À-ỹ]+|[.,?!=+\-]", normalized)
+
         tokens = []
         i = 0
-        n = len(raw_tokens)
-        
-        while i < n:
+        while i < len(raw_tokens):
             matched = False
-            # Thử ghép từ dài nhất (tối đa 4 token liên tiếp)
             for length in range(4, 0, -1):
-                if i + length <= n:
-                    phrase = " ".join(raw_tokens[i:i+length])
-                    # Nếu phrase nằm trong vocabulary hoặc là 1 số tự nhiên ghép với đơn vị
-                    if phrase in self.vocabulary or self._is_special_phrase(phrase):
-                        tokens.append(phrase)
-                        i += length
-                        matched = True
-                        break
-            if not matched:
-                # Nếu không khớp từ ghép nào, giữ nguyên token đơn
-                tokens.append(raw_tokens[i])
-                i += 1
-                
-        # Chuẩn hóa chuẩn viết hoa cho dòng xe (ví dụ: vf3 -> VF3)
-        for idx, tok in enumerate(tokens):
-            if tok.replace(" ", "").lower() in ["vf3", "vf5", "vf6", "vf7", "vf8", "vf9"]:
-                tokens[idx] = tok.replace(" ", "").upper()
-                
+                phrase = " ".join(raw_tokens[i : i + length])
+                if phrase in self.vocabulary or self._is_special_phrase(phrase):
+                    tokens.append(phrase)
+                    i += length
+                    matched = True
+                    break
+            if matched:
+                continue
+
+            token = raw_tokens[i]
+            model_match = re.fullmatch(r"vf\s*(\d+)", token, flags=re.IGNORECASE)
+            if model_match:
+                tokens.append(f"VF{model_match.group(1)}")
+            else:
+                tokens.append(token)
+            i += 1
+
         return tokens
 
     def _is_special_phrase(self, phrase: str) -> bool:
-        # Nhận diện số kèm đơn vị ví dụ: "500 triệu", "210 km"
-        if re.match(r'^\d+\s+(triệu|km|tỷ|đồng)$', phrase):
-            return True
-        return False
+        phrase_plain = self._plain_text(phrase)
+        return bool(re.match(r"^\d+(?:[,.]\d+)?\s+(trieu|ty|km|dong|tr)$", phrase_plain))
 
     def pos_tag(self, tokens: list) -> list:
-        """
-        Gán từ loại cho từng token.
-        """
         tagged_tokens = []
         for token in tokens:
             token_lower = token.lower()
-            tag = "N" # Mặc định là danh từ
-            
-            # Kiểm tra xem có phải số không
-            if token.isdigit() or re.match(r'^\d+(\.\d+)?$', token):
-                tag = "M" # Số từ
-            elif re.match(r'^\d+\s+(triệu|km|tỷ|đồng)$', token_lower):
-                tag = "M" # Cụm số lượng
+            token_plain = self._plain_text(token)
+            tag = "N"
+
+            if re.fullmatch(r"\d+(?:[,.]\d+)?", token):
+                tag = "M"
+            elif re.fullmatch(r"\d+(?:[,.]\d+)?\s+(trieu|ty|km|dong|tr)", token_plain):
+                tag = "M"
             elif token in [".", ",", "?", "!", ":"]:
-                tag = "F" # Dấu câu
+                tag = "F"
+            elif self._canonical_model(token) in self.known_models or re.fullmatch(r"VF\d+", self._canonical_model(token)):
+                tag = "Np"
             else:
-                found = False
-                for t, words in self.pos_rules.items():
-                    if token_lower in words:
-                        tag = t
-                        found = True
+                for pos, words in self.pos_rules.items():
+                    normalized_words = {self._plain_text(word) for word in words}
+                    if token_lower in words or token_plain in normalized_words:
+                        tag = pos
                         break
-                if not found:
-                    # Fallback dựa trên các heuristics đơn giản
-                    if token_lower.startswith("vf"):
-                        tag = "Np"
-                    elif token_lower in ["chạy", "đi", "so"]:
-                        tag = "V"
-                    elif token_lower in ["nhất", "hơn"]:
-                        tag = "A"
-                        
+
             tagged_tokens.append({"token": token, "pos": tag})
         return tagged_tokens
 
     def extract_entities(self, tokens: list) -> list:
-        """
-        Nhận diện thực thể (NER):
-        - CAR_MODEL (Tên xe): VF3, VF5, VF6,...
-        - PRICE_LIMIT (Điều kiện giá): dưới 500 triệu, trên 300 triệu,...
-        - QUERY_ATTR (Thuộc tính truy vấn): chạy xa nhất, giá rẻ nhất,...
-        """
         entities = []
         text = " ".join(tokens)
-        
-        # 1. Nhận diện dòng xe (CAR_MODEL)
-        for model in ["VF3", "VF5", "VF6", "VF7", "VF8", "VF9"]:
-            if model in text:
-                entities.append({
-                    "entity": model,
-                    "label": "CAR_MODEL",
-                    "description": "Tên dòng xe VinFast"
-                })
-                
-        # 2. Nhận diện bộ lọc giá (PRICE_LIMIT)
-        # Tìm các cụm như "dưới 500 triệu", "dưới 500tr", "trên 300 triệu"
-        price_patterns = [
-            r'(dưới|trên|tầm|khoảng|từ)\s+(\d+)\s*(triệu|tỷ|đồng|tr)?',
-            r'(\d+)\s*(triệu|tỷ|đồng|tr)'
-        ]
-        
-        for token in tokens:
-            token_lower = token.lower()
-            # Kiểm tra xem có chứa số và đơn vị tiền tệ không
-            if "triệu" in token_lower or "tỷ" in token_lower:
-                match = re.search(r'(\d+)\s*(triệu|tỷ)', token_lower)
-                if match:
-                    val = match.group(1)
-                    unit = match.group(2)
-                    # Tìm xem có từ chỉ hướng ở trước không (dưới, trên)
-                    # Ta quét qua token trước đó nếu có
-                    idx = tokens.index(token)
-                    prefix = ""
-                    if idx > 0 and tokens[idx-1].lower() in ["dưới", "trên", "khoảng", "tầm"]:
-                        prefix = tokens[idx-1] + " "
-                    
-                    entities.append({
-                        "entity": prefix + token,
-                        "label": "PRICE_LIMIT" if "triệu" in token_lower or "tỷ" in token_lower else "NUMBER",
-                        "description": f"Giới hạn giá trị tài chính: {val} {unit}"
-                    })
-                    
-        # 3. Nhận diện thuộc tính truy vấn (QUERY_ATTR)
-        for token in tokens:
-            token_lower = token.lower()
-            if "xa nhất" in token_lower or "xa" in token_lower or "tầm hoạt động" in token_lower:
-                entities.append({
-                    "entity": token,
+        text_plain = self._plain_text(text)
+
+        for model in self._find_models(text):
+            entities.append({"entity": model, "label": "CAR_MODEL", "description": "Tên dòng xe điện"})
+
+        for cond in self._extract_conditions(text):
+            label = "PRICE_LIMIT" if cond["field"] == "price" else "RANGE_LIMIT"
+            entities.append({"entity": cond["raw"], "label": label, "description": cond["description"]})
+
+        target = self._detect_target(text)
+        if target:
+            entities.append(
+                {
+                    "entity": target["raw"],
                     "label": "QUERY_ATTR",
-                    "description": "Yêu cầu lọc tầm hoạt động (Quãng đường)"
-                })
-            elif "rẻ nhất" in token_lower or "giá" in token_lower or "chi phí" in token_lower:
-                entities.append({
-                    "entity": token,
-                    "label": "QUERY_ATTR",
-                    "description": "Yêu cầu lọc giá cả"
-                })
-                
-        # Loại bỏ các thực thể bị trùng lặp trùng lặp
+                    "description": "Thuộc tính người dùng muốn tra cứu hoặc so sánh",
+                }
+            )
+
+        if any(word in text_plain for word in ["tu van", "nen mua", "phu hop", "goi y"]):
+            entities.append({"entity": "tư vấn", "label": "INTENT", "description": "Yêu cầu tư vấn lựa chọn xe"})
+
         unique_entities = []
         seen = set()
-        for ent in entities:
-            key = (ent["entity"], ent["label"])
+        for entity in entities:
+            key = (entity["entity"], entity["label"])
             if key not in seen:
                 seen.add(key)
-                unique_entities.append(ent)
-                
+                unique_entities.append(entity)
         return unique_entities
 
-    def parse(self, tokens: list) -> dict:
-        """
-        Phân tích cú pháp ngữ nghĩa (Parser).
-        Xác định:
-        - Chủ thể (Subject)
-        - Hành động (Action)
-        - Điều kiện (Condition)
-        - Thuộc tính cần hỏi (Target Attribute)
-        """
-        subject = "xe điện"  # Mặc định chủ thể
-        action = None
+    def _extract_conditions(self, text: str) -> list:
+        normalized = self._normalize_text(text)
+        plain = self._plain_text(normalized)
         conditions = []
-        target_attribute = None
-        
-        # Quét các tokens để phân tích
-        tokens_lower = [t.lower() for t in tokens]
-        
-        # 1. Xác định Chủ thể (Subject)
-        # Xem có nhắc tên xe cụ thể nào không
-        models_found = []
-        for t in tokens:
-            if t in ["VF3", "VF5", "VF6", "VF7", "VF8", "VF9"]:
-                models_found.append(t)
-        if models_found:
-            subject = models_found[0] if len(models_found) == 1 else models_found
-            
-        # 2. Xác định Hành động (Action)
-        for idx, tag in enumerate(self.pos_tag(tokens)):
-            if tag["pos"] == "V":
-                action = tag["token"]
+
+        between_patterns = [
+            r"(?:tu|trong khoang)\s+(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)?\s+(?:den|-)\s+(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)?",
+            r"(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)?\s*(?:den|-)\s*(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)",
+        ]
+        for pattern in between_patterns:
+            for match in re.finditer(pattern, plain):
+                low = self._parse_number(match.group(1), match.group(2) or match.group(4))
+                high = self._parse_number(match.group(3), match.group(4) or match.group(2))
+                if low > high:
+                    low, high = high, low
+                conditions.append(
+                    {
+                        "field": "price",
+                        "operator": "between",
+                        "value": [low, high],
+                        "raw": match.group(0),
+                        "description": f"Khoảng giá từ {low:g} đến {high:g} triệu đồng",
+                    }
+                )
+
+        rules = [
+            (r"(?:duoi|nho hon|it hon|khong qua|toi da|tam)\s+(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)", "price", "<="),
+            (r"(?:tren|lon hon|nhieu hon|toi thieu)\s+(\d+(?:[,.]\d+)?)\s*(trieu|ty|tr)", "price", ">="),
+            (r"(?:duoi|nho hon|it hon|khong qua|toi da)\s+(\d+(?:[,.]\d+)?)\s*(?:km|cay so)", "range", "<="),
+            (r"(?:tren|lon hon|nhieu hon|toi thieu)\s+(\d+(?:[,.]\d+)?)\s*(?:km|cay so)", "range", ">="),
+        ]
+        for pattern, field, operator in rules:
+            for match in re.finditer(pattern, plain):
+                value = self._parse_number(match.group(1), match.group(2) if field == "price" and match.lastindex and match.lastindex >= 2 else None)
+                conditions.append(
+                    {
+                        "field": field,
+                        "operator": operator,
+                        "value": value,
+                        "raw": match.group(0),
+                        "description": self._condition_description(field, operator, value),
+                    }
+                )
+
+        return self._dedupe_conditions(conditions)
+
+    def _dedupe_conditions(self, conditions: list) -> list:
+        unique = []
+        seen = set()
+        for cond in conditions:
+            value = tuple(cond["value"]) if isinstance(cond["value"], list) else cond["value"]
+            key = (cond["field"], cond["operator"], value)
+            if key not in seen:
+                seen.add(key)
+                unique.append(cond)
+        return unique
+
+    def _condition_description(self, field: str, operator: str, value: float) -> str:
+        label = "giá" if field == "price" else "tầm hoạt động"
+        unit = "triệu đồng" if field == "price" else "km"
+        return f"Điều kiện {label} {operator} {value:g} {unit}"
+
+    def _detect_target(self, text: str) -> Optional[dict]:
+        plain = self._plain_text(text)
+
+        if any(word in plain for word in ["so sanh", "khac nhau", "hon kem"]):
+            return {"field": "comparison", "type": "compare", "raw": "so sánh"}
+        if any(word in plain for word in ["xa nhat", "di duoc xa nhat", "tam hoat dong lon nhat", "range cao nhat"]):
+            return {"field": "range", "type": "max", "raw": "chạy xa nhất"}
+        if any(word in plain for word in ["gan nhat", "ngan nhat", "tam hoat dong thap nhat"]):
+            return {"field": "range", "type": "min", "raw": "tầm hoạt động thấp nhất"}
+        if any(word in plain for word in ["re nhat", "gia thap nhat", "tiet kiem nhat"]):
+            return {"field": "price", "type": "min", "raw": "rẻ nhất"}
+        if any(word in plain for word in ["dat nhat", "gia cao nhat", "cao nhat"]):
+            return {"field": "price", "type": "max", "raw": "giá cao nhất"}
+        if any(word in plain for word in self.RANGE_WORDS):
+            return {"field": "range", "type": "query", "raw": "tầm hoạt động"}
+        if any(word in plain for word in self.PRICE_WORDS) or "bao nhieu" in plain:
+            return {"field": "price", "type": "query", "raw": "giá bao nhiêu"}
+        if any(word in plain for word in ["tu van", "nen mua", "phu hop", "goi y"]):
+            return {"field": "recommendation", "type": "recommend", "raw": "tư vấn"}
+        return None
+
+    def parse(self, tokens: list) -> dict:
+        text = " ".join(tokens)
+        text_plain = self._plain_text(text)
+
+        models_found = self._find_models(text)
+
+        subject = "xe điện"
+        if len(models_found) == 1:
+            subject = models_found[0]
+        elif len(models_found) > 1:
+            subject = models_found
+
+        action = "tư vấn"
+        for tagged in self.pos_tag(tokens):
+            if tagged["pos"] == "V":
+                action = tagged["token"]
                 break
-        if not action:
-            # Fallback nếu không thấy động từ rõ ràng
-            if "chạy" in tokens_lower:
-                action = "chạy"
-            else:
-                action = "tư vấn"
-                
-        # 3. Xác định Điều kiện (Condition)
-        # Tìm điều kiện về giá
-        for idx, token in enumerate(tokens_lower):
-            # Dưới X triệu
-            if token in ["dưới", "nhỏ hơn", "ít hơn"]:
-                if idx + 1 < len(tokens):
-                    next_tok = tokens[idx+1].lower()
-                    # Kiểm tra xem có chứa số/triệu không
-                    match = re.search(r'(\d+)', next_tok)
-                    if match:
-                        val = int(match.group(1))
-                        conditions.append({
-                            "field": "price",
-                            "operator": "<",
-                            "value": val,
-                            "raw": f"{token} {tokens[idx+1]}"
-                        })
-            # Trên X triệu
-            elif token in ["trên", "lớn hơn", "nhiều hơn"]:
-                if idx + 1 < len(tokens):
-                    next_tok = tokens[idx+1].lower()
-                    match = re.search(r'(\d+)', next_tok)
-                    if match:
-                        val = int(match.group(1))
-                        conditions.append({
-                            "field": "price",
-                            "operator": ">",
-                            "value": val,
-                            "raw": f"{token} {tokens[idx+1]}"
-                        })
-                        
-        # 4. Xác định Thuộc tính cần hỏi (Target Attribute)
-        if any(x in tokens_lower for x in ["chạy xa nhất", "xa nhất", "tầm hoạt động xa nhất", "xa"]):
-            target_attribute = {
-                "field": "range",
-                "type": "max",
-                "raw": "chạy xa nhất"
-            }
-        elif any(x in tokens_lower for x in ["rẻ nhất", "giá rẻ nhất", "tiết kiệm nhất"]):
-            target_attribute = {
-                "field": "price",
-                "type": "min",
-                "raw": "rẻ nhất"
-            }
-        elif any(x in tokens_lower for x in ["đắt nhất", "giá cao nhất"]):
-            target_attribute = {
-                "field": "price",
-                "type": "max",
-                "raw": "đắt nhất"
-            }
-        elif any(x in tokens_lower for x in ["bao nhiêu", "giá", "chi phí"]):
-            # Hỏi về giá của một mẫu xe cụ thể
-            target_attribute = {
-                "field": "price",
-                "type": "query",
-                "raw": "giá bao nhiêu"
-            }
-        elif any(x in tokens_lower for x in ["tầm hoạt động", "bao nhiêu km", "quãng đường"]):
-            target_attribute = {
-                "field": "range",
-                "type": "query",
-                "raw": "tầm hoạt động"
-            }
-            
+        if "so sanh" in text_plain:
+            action = "so sánh"
+        elif any(word in text_plain for word in ["tu van", "nen mua", "phu hop", "goi y"]):
+            action = "tư vấn"
+
         return {
             "subject": subject,
             "action": action,
-            "conditions": conditions,
-            "target_attribute": target_attribute
+            "conditions": self._extract_conditions(text),
+            "target_attribute": self._detect_target(text),
         }
 
     def process(self, query: str) -> dict:
-        """
-        Chạy toàn bộ pipeline NLP trên câu hỏi đầu vào.
-        """
         import time
+
         start_time = time.time()
-        
-        # 1. Tokenizer
+
         tokens = self.tokenize(query)
         t_tokenize = (time.time() - start_time) * 1000
-        
-        # 2. POS Tagger
+
         start_step = time.time()
         pos_tags = self.pos_tag(tokens)
         t_pos = (time.time() - start_step) * 1000
-        
-        # 3. Entity Recognizer
+
         start_step = time.time()
         entities = self.extract_entities(tokens)
         t_ner = (time.time() - start_step) * 1000
-        
-        # 4. Parser
+
         start_step = time.time()
         parsed_structure = self.parse(tokens)
         t_parse = (time.time() - start_step) * 1000
-        
+
         total_time = (time.time() - start_time) * 1000
-        
+
         return {
             "query": query,
             "tokens": tokens,
@@ -340,6 +384,6 @@ class EVNLPPipeline:
                 "pos_tagger_ms": round(t_pos, 3),
                 "ner_ms": round(t_ner, 3),
                 "parser_ms": round(t_parse, 3),
-                "total_ms": round(total_time, 3)
-            }
+                "total_ms": round(total_time, 3),
+            },
         }

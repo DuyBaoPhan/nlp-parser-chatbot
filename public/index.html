@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI Chatbot hỗ trợ tư vấn xe điện thông minh, tích hợp hệ thống phân tích ngôn ngữ tự nhiên tiếng Việt (NLP Pipeline) thời gian thực, tối ưu hóa cho Raspberry Pi 4.">
+    <meta name="keywords" content="xe điện, chatbot, nlp parser, tiếng việt, raspberry pi, vinfast, vf3, vf5, vf6">
+    <title>EV Chatbot - Hệ thống Tư vấn Xe điện NLP</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Background Decorative Elements -->
+        <div class="bg-glow bg-glow-1"></div>
+        <div class="bg-glow bg-glow-2"></div>
+        
+        <!-- Main Header -->
+        <header class="app-header">
+            <div class="brand">
+                <div class="logo-glow">
+                    <i class="fa-solid fa-bolt-lightning"></i>
+                </div>
+                <div>
+                    <h1>EV CONSULTING BOT</h1>
+                    <span class="sub-brand">Hệ thống phân tích cú pháp NLP tiếng Việt siêu nhẹ</span>
+                </div>
+            </div>
+            <div class="server-status">
+                <span class="status-indicator online"></span>
+                <span class="status-text">Raspberry Pi 4 - Connected (<span id="ping-latency">0</span>ms)</span>
+            </div>
+        </header>
+
+        <!-- Main Workspace Grid -->
+        <main class="app-workspace">
+            
+            <!-- LEFT SECTION: Chat Application -->
+            <section class="panel panel-chat">
+                <div class="panel-header">
+                    <h2><i class="fa-regular fa-comments"></i> Hộp hội thoại Tư vấn EV</h2>
+                    <button class="btn-clear-chat" id="btn-clear-chat" title="Xóa cuộc trò chuyện">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+                
+                <!-- Chat Window Area -->
+                <div class="chat-window" id="chat-window">
+                    <div class="message bot-message">
+                        <div class="avatar"><i class="fa-solid fa-robot"></i></div>
+                        <div class="message-bubble">
+                            Chào bạn! Tôi là Trợ lý Xe điện thông minh chạy trên Raspberry Pi 4. Tôi hỗ trợ phân tích ngôn ngữ tự nhiên để tra cứu cơ sở dữ liệu xe điện VinFast.
+                            <br><br>
+                            Hãy thử hỏi tôi một câu, ví dụ: <strong>"Xe điện nào dưới 500 triệu chạy xa nhất?"</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Suggested Quick Queries -->
+                <div class="suggested-queries">
+                    <span class="suggest-title"><i class="fa-solid fa-wand-magic-sparkles"></i> Gợi ý thử nghiệm:</span>
+                    <div class="query-chips" id="query-chips">
+                        <button class="chip" data-query="Xe điện nào dưới 500 triệu chạy xa nhất?">"Xe điện nào dưới 500 triệu chạy xa nhất?"</button>
+                        <button class="chip" data-query="VF3 giá bao nhiêu?">"VF3 giá bao nhiêu?"</button>
+                        <button class="chip" data-query="Mẫu xe nào rẻ nhất dưới 700 triệu?">"Mẫu xe nào rẻ nhất dưới 700 triệu?"</button>
+                        <button class="chip" data-query="VF5 chạy được bao xa?">"VF5 chạy được bao xa?"</button>
+                    </div>
+                </div>
+
+                <!-- Input Box -->
+                <form class="chat-input-area" id="chat-form">
+                    <input type="text" id="chat-input" placeholder="Nhập câu hỏi của bạn về xe điện..." required autocomplete="off">
+                    <button type="submit" id="btn-send" class="btn-send" title="Gửi câu hỏi">
+                        <i class="fa-solid fa-paper-plane"></i>
+                    </button>
+                </form>
+            </section>
+
+            <!-- RIGHT SECTION: NLP Parser Diagnostic Center -->
+            <section class="panel panel-diagnostics">
+                <div class="panel-header">
+                    <h2><i class="fa-solid fa-microchip"></i> Trung tâm Chẩn đoán NLP Pipeline</h2>
+                    <div class="panel-tabs">
+                        <button class="tab-btn active" id="tab-btn-nlp" data-tab="nlp-tab"><i class="fa-solid fa-brain"></i> NLP Analysis</button>
+                        <button class="tab-btn" id="tab-btn-db" data-tab="db-tab"><i class="fa-solid fa-database"></i> Database Editor</button>
+                    </div>
+                </div>
+
+                <!-- TAB Content 1: NLP Analyzer -->
+                <div class="tab-content active" id="nlp-tab">
+                    
+                    <!-- LATENCY DASHBOARD -->
+                    <div class="diagnostic-card latency-card">
+                        <h3><i class="fa-solid fa-gauge-high"></i> Báo cáo tốc độ xử lý (Latency report)</h3>
+                        <div class="latency-grid">
+                            <div class="latency-item">
+                                <span class="latency-label">Tokenizer</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="pb-tokenizer" style="width: 0%"></div>
+                                </div>
+                                <span class="latency-value" id="val-tokenizer">0 ms</span>
+                            </div>
+                            <div class="latency-item">
+                                <span class="latency-label">POS Tagger</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="pb-tagger" style="width: 0%"></div>
+                                </div>
+                                <span class="latency-value" id="val-tagger">0 ms</span>
+                            </div>
+                            <div class="latency-item">
+                                <span class="latency-label">NER</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="pb-ner" style="width: 0%"></div>
+                                </div>
+                                <span class="latency-value" id="val-ner">0 ms</span>
+                            </div>
+                            <div class="latency-item">
+                                <span class="latency-label">Parser</span>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="pb-parser" style="width: 0%"></div>
+                                </div>
+                                <span class="latency-value" id="val-parser">0 ms</span>
+                            </div>
+                            <div class="latency-item total-latency">
+                                <span class="latency-label">Tổng xử lý (Pipeline Total)</span>
+                                <div class="latency-glow">
+                                    <span id="val-total">0 ms</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 1: TOKENIZER -->
+                    <div class="diagnostic-card">
+                        <h3><i class="fa-solid fa-scissors"></i> 1. Tokenizer (Tách từ Tiếng Việt)</h3>
+                        <div class="visualizer-container" id="visualizer-tokenizer">
+                            <span class="placeholder-text">Chưa có câu truy vấn nào được phân tích.</span>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: POS TAGGER -->
+                    <div class="diagnostic-card">
+                        <h3><i class="fa-solid fa-tags"></i> 2. POS Tagger (Gán từ loại)</h3>
+                        <div class="visualizer-container" id="visualizer-tagger">
+                            <span class="placeholder-text">Chưa có câu truy vấn nào được phân tích.</span>
+                        </div>
+                        <div class="pos-legend">
+                            <span class="pos-key pos-Np">Np (D.Từ Riêng)</span>
+                            <span class="pos-key pos-N">N (Danh Từ)</span>
+                            <span class="pos-key pos-V">V (Động Từ)</span>
+                            <span class="pos-key pos-A">A (Tính Từ)</span>
+                            <span class="pos-key pos-M">M (Số Từ)</span>
+                            <span class="pos-key pos-E">E (Giới Từ)</span>
+                            <span class="pos-key pos-P">P (Đại Từ)</span>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3: SEMANTIC PARSER -->
+                    <div class="diagnostic-card">
+                        <h3><i class="fa-solid fa-diagram-project"></i> 3. Dependency Semantic Parser</h3>
+                        <div class="parser-table-container">
+                            <table class="parser-table">
+                                <thead>
+                                    <tr>
+                                        <th>Cấu trúc</th>
+                                        <th>Giá trị nhận diện</th>
+                                        <th>Giải thích ngữ nghĩa</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong class="text-neon-cyan">Chủ thể / Đối tượng</strong></td>
+                                        <td id="parser-subject">-</td>
+                                        <td class="text-dim">Mẫu xe điện là tiêu điểm của câu hỏi</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong class="text-neon-pink">Hành động</strong></td>
+                                        <td id="parser-action">-</td>
+                                        <td class="text-dim">Động từ chỉ hành vi hoặc trạng thái xe</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong class="text-neon-orange">Điều kiện lọc</strong></td>
+                                        <td id="parser-conditions">-</td>
+                                        <td class="text-dim">Các tiêu chuẩn đi kèm (giá cả, khoảng giá)</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong class="text-neon-green">Thuộc tính cần tìm</strong></td>
+                                        <td id="parser-attribute">-</td>
+                                        <td class="text-dim">Đặc tính cần so sánh hoặc lấy thông tin</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4: NAMED ENTITY RECOGNITION (NER) -->
+                    <div class="diagnostic-card">
+                        <h3><i class="fa-solid fa-fingerprint"></i> 4. Entity Recognizer (NER)</h3>
+                        <div class="visualizer-container" id="visualizer-ner">
+                            <span class="placeholder-text">Chưa có câu truy vấn nào được phân tích.</span>
+                        </div>
+                    </div>
+
+                    <!-- STEP 5: DB LOOKUP PROCESS -->
+                    <div class="diagnostic-card">
+                        <h3><i class="fa-solid fa-code-fork"></i> 5. Quy trình truy vấn DB & Ra quyết định</h3>
+                        <div class="decision-flow" id="decision-flow">
+                            <span class="placeholder-text">Chưa có dữ liệu tìm kiếm.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB Content 2: Database Manager -->
+                <div class="tab-content" id="db-tab">
+                    <div class="db-manager-grid">
+                        
+                        <!-- Form thêm/sửa xe -->
+                        <div class="diagnostic-card">
+                            <h3><i class="fa-solid fa-circle-plus"></i> Cập nhật / Thêm xe mới</h3>
+                            <form id="db-form" class="db-form">
+                                <div class="form-group">
+                                    <label for="car-name">Tên dòng xe (Ví dụ: VF3, VF5, VF7):</label>
+                                    <input type="text" id="car-name" placeholder="Ví dụ: VF7" required autocomplete="off">
+                                </div>
+                                <div class="form-group">
+                                    <label for="car-price">Giá bán (Triệu đồng):</label>
+                                    <input type="number" id="car-price" placeholder="Ví dụ: 850" min="1" step="any" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="car-range">Tầm hoạt động / Quãng đường (km):</label>
+                                    <input type="number" id="car-range" placeholder="Ví dụ: 431" min="1" required>
+                                </div>
+                                <button type="submit" class="btn-submit"><i class="fa-solid fa-floppy-disk"></i> Lưu cơ sở dữ liệu</button>
+                            </form>
+                            <div class="form-message" id="form-message"></div>
+                        </div>
+
+                        <!-- Danh sách xe hiện tại -->
+                        <div class="diagnostic-card">
+                            <h3><i class="fa-solid fa-list"></i> Danh sách xe trong hệ thống</h3>
+                            <div class="db-list-container">
+                                <table class="db-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Tên Xe</th>
+                                            <th>Giá bán (Triệu)</th>
+                                            <th>Tầm hoạt động (km)</th>
+                                            <th>Hành động</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="db-table-body">
+                                        <!-- Danh sách xe render bằng JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>&copy; 2026 EV Consulting System. Dự án chạy trên chip ARM v8 (Raspberry Pi 4 4GB/8GB) với bộ phân tích NLP siêu nhẹ.</p>
+        </footer>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="/js/main.js"></script>
+</body>
+</html>
